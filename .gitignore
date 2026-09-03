@@ -1,0 +1,44 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Test & tooling caches
+.pytest_cache/
+.ruff_cache/
+
+# Local test/run artifacts
+test_output.txt
+*.log
+
+# Secrets - never commit real credentials
+.env
+
+# Reference docs containing real captured production data
+# (passwords, tokens, bank details, live schema dumps)
+docs/marketplace-database-schema.txt
+docs/requirements.pdf
+docs/staging-collections-and-fields.pdf
+
+# Local snapshot of the old 384-dim product embeddings, taken before
+# the re-embed migration. Derived data, ~1.2MB, and the model that made
+# it is unidentified so it cannot be regenerated - keep it, do not commit it.
+product_embeddings.backup.json
+
+# Eval results. The JSON holds whole assistant replies against the live
+# `marketplace` database - real order ids, real customer purchases, real
+# prices - so it is derived production data and cannot be committed for
+# the same reason the schema dumps above cannot. Keep runs locally and
+# compare them locally; record the SCORE in the PR, not the transcript.
+/evals/
+
+# Claude Code's per-machine permission allowlist. The skills beside it in
+# .claude/ ARE shared; this file is whatever one laptop happened to
+# approve.
+.claude/settings.local.json

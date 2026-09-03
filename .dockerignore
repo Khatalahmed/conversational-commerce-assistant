@@ -1,0 +1,38 @@
+# Everything the image must not carry.
+#
+# The first entry is the one that matters: .env holds a live MongoDB
+# URI, a billable Azure key and the JWT signing secret. A COPY that
+# picks it up writes those into a layer, and a layer keeps them even if
+# a later step deletes the file - including in any registry the image
+# reaches. Configuration is passed as environment variables instead.
+.env
+.env.*
+!.env.example
+
+# Machine-specific and large. .venv in particular is built for the host
+# OS and would break the image even if it fitted.
+.venv/
+__pycache__/
+*.py[oc]
+.pytest_cache/
+.ruff_cache/
+
+# Needs a live sandbox connection; no business in a runtime image.
+app/tests/
+
+# Dev-only by the project's own definition, and two of them WRITE.
+# See the Dockerfile's header for why a read-only service does not
+# ship them.
+scripts/
+
+# Reference material, some of it holding real captured production data
+# (see .gitignore). None of it is read at run time.
+docs/
+
+.git/
+.github/
+.claude/
+*.log
+test_output.txt
+Dockerfile
+.dockerignore

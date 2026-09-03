@@ -1,0 +1,115 @@
+# Continuous integration.
+#
+# WHAT THIS CAN AND CANNOT RUN, and why that is not a shortcut.
+#
+# About a hundred of the tests read the real MongoDB Atlas sandbox -
+# deliberately, because they assert against real data rather than
+# fixtures, which is what catches a schema drifting underneath the app.
+# Atlas only accepts connections from allow-listed IP addresses, and a
+# GitHub runner gets a fresh address on every job. The options are to
+# skip those tests here, or to open the cluster holding real customer
+# orders to the whole internet. This skips them.
+#
+# They are not skipped by hand: conftest.py marks anything requesting
+# the `db` fixture as `needs_db`, derived from the fixture itself, so
+# the split cannot drift as tests are added.
+#
+# WHAT REMAINS IS NOT THE LEFTOVERS. The 274 hermetic tests are the
+# security invariants (no schema may accept an identity parameter), the
+# provider-selection rules that keep real customer data away from
+# providers that train on prompts, the rate limiter on both backends,
+# the streaming transport, log redaction and the tool-surface checks.
+# Those are the ones where a regression is silent.
+#
+# Before a release, run the whole suite from a machine whose IP Atlas
+# allows: `uv run pytest`.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  # A new push makes the previous run's answer irrelevant.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Hermetic tests
+    runs-on: ubuntu-latest
+    env:
+      # PLACEHOLDERS, NOT SECRETS. Settings refuses to construct without
+      # a Mongo URI and a JWT secret, and several tests mint tokens with
+      # the latter - they only need it to be self-consistent, never to
+      # be real. Nothing here connects anywhere: the URI is unroutable
+      # and every provider key is deliberately blank.
+      #
+      # No repository secret is referenced on purpose. A CI job that
+      # holds the live database credential is a copy of that credential
+      # in a place nobody audits, readable by any workflow change.
+      MONGODB_URI: "mongodb://ci-placeholder/does-not-connect"
+      MONGODB_DATABASE: "marketplace_demo"
+      JWT_SECRET: "ci-placeholder-secret-not-used-against-anything-real"
+      LLM_API_KEY: ""
+      GEMINI_API_KEY: ""
+      REDIS_URL: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        # --frozen so CI installs what uv.lock records rather than
+        # re-resolving. A green run against a different dependency tree
+        # than the developer has is worse than no run.
+        run: uv sync --frozen
+
+      - name: Run the tests that need no database
+        run: uv run pytest -m "not needs_db" -q
+
+      - name: Confirm the database-backed tests are only skipped, not lost
+        # Guards the split itself. If the marker logic broke and marked
+        # everything, the step above would pass triumphantly having run
+        # almost nothing.
+        run: |
+          uv run pytest -m "not needs_db" --collect-only -q | tail -1
+          uv run pytest -m "needs_db" --collect-only -q | tail -1
+
+  image:
+    name: Container builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        # The image is how this reaches a server, so a Dockerfile that
+        # stopped building should fail here rather than at deploy time.
+        # Not pushed anywhere: this is a check, not a release.
+        run: docker build -t commerce-assistant:ci .
+
+      - name: Confirm it does not run as root
+        # The Dockerfile creates an unprivileged user. A later edit that
+        # drops the USER line would otherwise go unnoticed until someone
+        # thought to look.
+        run: |
+          user=$(docker run --rm --entrypoint id commerce-assistant:ci -un)
+          echo "image runs as: $user"
+          test "$user" = "appuser"
+
+      - name: Confirm no .env was baked into the image
+        # .dockerignore excludes it. This checks the outcome rather than
+        # trusting the file, because the cost of being wrong is a live
+        # database credential inside a distributable artifact.
+        run: |
+          if docker run --rm --entrypoint sh commerce-assistant:ci -c "ls -a /app | grep -qx '.env'"; then
+            echo "::error::.env is present inside the image"
+            exit 1
+          fi
+          echo "no .env in the image"

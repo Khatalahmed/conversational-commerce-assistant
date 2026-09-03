@@ -1,0 +1,106 @@
+# Render blueprint. Render reads this on first deploy and configures the
+# service from it, so the settings below are reviewed here rather than
+# clicked into a dashboard nobody can audit later.
+#
+# DEPLOYING THIS AGAINST PRODUCTION DATA has three consequences. None
+# is optional.
+#
+#   DEMO_ACCESS_CODE IS REQUIRED. /demo/accounts lists buyer accounts
+#   and /demo/token signs in as any of them with no password. On a
+#   laptop that grants nothing; behind a URL it is a customer directory
+#   with one-click impersonation. The code is the whole difference
+#   between "anyone who finds the link" and "anyone you told".
+#
+#   ONLY A PROVIDER EXCLUDED FROM TRAINING ON PROMPTS IS ELIGIBLE. The
+#   chain is filtered by the data: while MONGODB_DATABASE names the
+#   production database, providers whose terms permit training are
+#   dropped, because those prompts carry real orders. So AZURE_OPENAI_*
+#   - or a BACKUP_LLM_* asserting the same - is mandatory here. Without
+#   one the service starts and every request answers "I can't reach my
+#   assistant service".
+#
+#   THE DATABASE ALLOW-LIST MUST ADMIT RENDER. Container hosts have
+#   dynamic outbound IPs, so the cluster has to accept them. That is a
+#   real widening of access to production data - weigh it before
+#   deploying, and prefer a host with static egress if you can.
+#
+# Pointing MONGODB_DATABASE at the synthetic dataset removes all three
+# concerns at once.
+
+services:
+  - type: web
+    name: commerce-assistant
+    runtime: docker
+    # Closest region to the users and to the Atlas
+    # cluster. Every extra hop shows up in an answer that already takes
+    # eight seconds.
+    region: singapore
+
+    # STARTER, NOT FREE, AND HERE IS THE TRADE. Render's free web
+    # services spin down after ~15 minutes idle, and the next visitor
+    # waits roughly a minute for a cold start - on a link sent to a
+    # client to open "whenever", that first impression is the product
+    # looking broken. Starter stays warm. Change to `free` if the link
+    # is only for a scheduled call you are present for.
+    plan: starter
+
+    # Render polls this to decide the service is live. /health returns
+    # 200 whenever the app is serving, including when the LLM chain is
+    # merely degraded - which is correct: a single-provider warning is
+    # not a reason to restart a working service.
+    healthCheckPath: /health
+
+    envVars:
+      # Set here because they are decisions, not secrets, and they
+      # should be visible in review.
+      - key: MONGODB_DATABASE
+        value: marketplace
+      # The whole point of this deployment is the page at /demo.
+      - key: DEMO_UI_ENABLED
+        value: "true"
+      # Safe above 1 only because conversation memory and the rate limit
+      # are shared through Redis. If REDIS_URL is left unset below, put
+      # this back to 1 - two workers without it means a follow-up
+      # question can land on a worker that never saw the first message.
+      - key: WEB_CONCURRENCY
+        value: "2"
+
+      # sync: false means Render prompts for the value once, stores it
+      # encrypted, and never writes it into this file or the repository.
+      # Nothing secret belongs in git - see .gitignore and .dockerignore.
+      # THE DOOR IN FRONT OF THE DEMO. Required on any reachable URL:
+      # without it, /demo/accounts lists real buyers and /demo/token
+      # signs in as any of them with no password.
+      - key: DEMO_ACCESS_CODE
+        sync: false
+      - key: MONGODB_URI          # the cluster holding marketplace
+        sync: false
+      - key: JWT_SECRET           # must match whatever mints the client's token
+        sync: false
+      # MANDATORY on real data - the only provider the filter allows.
+      - key: AZURE_OPENAI_ENDPOINT
+        sync: false
+      - key: AZURE_OPENAI_API_KEY
+        sync: false
+      - key: AZURE_OPENAI_DEPLOYMENT
+        sync: false
+      # Without this embeddings_configured() returns False and
+      # find_similar_products goes dark - the vector search stays silent
+      # rather than wrong, but "show me something like this" stops working.
+      - key: AZURE_EMBEDDING_DEPLOYMENT
+        sync: false
+      # Carried anyway: they cost nothing while marketplace is configured (the
+      # filter drops them), and they become the fallback the moment this
+      # is pointed at marketplace_demo.
+      - key: LLM_API_KEY          # Groq
+        sync: false
+      - key: GEMINI_API_KEY       # Google AI Studio
+        sync: false
+      - key: REDIS_URL            # Upstash; omit and set WEB_CONCURRENCY=1
+        sync: false
+
+      # A NOTE ON COST. On real data every answer is billed to Azure,
+      # and a link anyone can open is a link anyone can spend. The
+      # access code bounds that; the per-user rate limit does not,
+      # because it keys on the signed-in account and the picker hands
+      # out accounts freely.
