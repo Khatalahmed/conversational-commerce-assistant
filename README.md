@@ -1,6 +1,6 @@
 <h1>Conversational Commerce Assistant</h1>
 
-**A read-only AI assistant over a live commerce database — where every number in an answer can be traced back to the query that produced it.**
+**A read-only AI assistant over a live commerce database — where every price and order ID in an answer is traced back to the query that returned it.**
 
 [![CI](https://github.com/Khatalahmed/conversational-commerce-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Khatalahmed/conversational-commerce-assistant/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white)
